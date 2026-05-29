@@ -239,7 +239,7 @@ The key insight: embeddings enable **generalization** across structurally simila
 
 ```bash
 # Clone repository
-git clone https://github.com/wittyswayam/rl-platform.git
+git clone https://github.com/wittyswayam/Deep-Reinforcement-Learning-for-Delayed-Rewards.git
 cd Deep-Reinforcement-Learning-for-Delayed-Rewards
 
 # Create virtual environment
@@ -553,7 +553,7 @@ curl http://localhost:8080/health
 ## Repository Structure
 
 ```
-rl-platform/
+Deep-Reinforcement-Learning-for-Delayed-Rewards/
 ├── src/
 │   ├── agents/                    # RL algorithm implementations
 │   │   ├── node2vec_rl.py         # Core algorithm (Node2Vec + InferNet + Q-learning)
