@@ -239,8 +239,8 @@ The key insight: embeddings enable **generalization** across structurally simila
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/rl-platform.git
-cd rl-platform
+git clone https://github.com/wittyswayam/rl-platform.git
+cd Deep-Reinforcement-Learning-for-Delayed-Rewards
 
 # Create virtual environment
 python -m venv venv && source venv/bin/activate
@@ -655,8 +655,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**Built for scale. Designed for research. Ready for production.**
-
+Research-oriented reinforcement learning platform focused on delayed reward environments.
 *Deep RL Platform for Delayed Rewards — v2.0.0*
 
 </div>
