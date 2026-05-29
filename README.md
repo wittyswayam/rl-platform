@@ -239,7 +239,7 @@ The key insight: embeddings enable **generalization** across structurally simila
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/rl-platform.git
+git clone https://github.com/wittyswayam/rl-platform.git
 cd rl-platform
 
 # Create virtual environment
@@ -655,7 +655,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**Built for scale. Designed for research. Ready for production.**
+**Built for scale. Designed for research.**
 
 *Deep RL Platform for Delayed Rewards — v2.0.0*
 
