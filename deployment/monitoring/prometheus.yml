@@ -1,0 +1,43 @@
+# ============================================================
+# Prometheus Configuration - RL Platform
+# ============================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: "rl-platform"
+
+# Alerting rules file
+rule_files:
+  - "alerts.yml"
+
+# Alertmanager (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+scrape_configs:
+  # ── RL Trainer Telemetry ──
+  - job_name: "rl_trainer"
+    static_configs:
+      - targets: ["rl-trainer:9090"]
+    metrics_path: /metrics
+    scrape_interval: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: "rl-trainer"
+
+  # ── RL Inference Service ──
+  - job_name: "rl_inference"
+    static_configs:
+      - targets: ["rl-inference:9090"]
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  # ── Prometheus Self-Monitoring ──
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

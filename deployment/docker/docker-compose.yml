@@ -1,0 +1,144 @@
+version: "3.9"
+
+# ============================================================
+# Deep RL Platform - Docker Compose Stack
+# ============================================================
+# Services:
+#   trainer       - RL training service
+#   inference     - Policy serving API
+#   mlflow        - Experiment tracking UI
+#   prometheus    - Metrics scraping
+#   grafana       - Monitoring dashboards
+#   redis         - Shared experience queue
+# ============================================================
+
+networks:
+  rl-network:
+    driver: bridge
+
+volumes:
+  checkpoints:
+  experiments:
+  mlflow-data:
+  prometheus-data:
+  grafana-data:
+  redis-data:
+
+services:
+
+  # ──── Core Training Service ────
+  trainer:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+    container_name: rl-trainer
+    networks: [rl-network]
+    volumes:
+      - checkpoints:/app/checkpoints
+      - experiments:/app/experiments
+      - ../../configs:/app/configs:ro
+    environment:
+      - RL_DEVICE=cpu
+      - RL_NUM_WORKERS=4
+      - RL_EXPERIMENT_NAME=docker_run
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    ports:
+      - "9090:9090"   # Telemetry/Prometheus
+    depends_on:
+      - mlflow
+      - redis
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "4.0"
+
+  # ──── Inference / Policy Server ────
+  inference:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+    container_name: rl-inference
+    command: ["python", "-m", "scripts.serve", "--port", "8080"]
+    networks: [rl-network]
+    volumes:
+      - checkpoints:/app/checkpoints:ro
+    ports:
+      - "8080:8080"
+    environment:
+      - RL_MODEL_PATH=/app/checkpoints/production/best_model.pt
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ──── MLflow Experiment Tracking ────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.10.0
+    container_name: rl-mlflow
+    networks: [rl-network]
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    restart: always
+
+  # ──── Prometheus Metrics ────
+  prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: rl-prometheus
+    networks: [rl-network]
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    restart: always
+
+  # ──── Grafana Dashboards ────
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: rl-grafana
+    networks: [rl-network]
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=rlplatform
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/rl_training.json
+    depends_on: [prometheus]
+    restart: always
+
+  # ──── Redis (Shared Experience Queue) ────
+  redis:
+    image: redis:7.2-alpine
+    container_name: rl-redis
+    networks: [rl-network]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

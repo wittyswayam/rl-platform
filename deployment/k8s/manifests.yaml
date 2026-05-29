@@ -1,0 +1,249 @@
+# ============================================================
+# Deep RL Platform - Kubernetes Manifests
+# ============================================================
+# Apply with: kubectl apply -f deployment/k8s/
+#
+# Architecture:
+#   Namespace: rl-platform
+#   Deployments: rl-trainer, rl-inference
+#   Services: rl-inference-svc, rl-telemetry-svc
+#   ConfigMaps: rl-config
+#   PVCs: checkpoints-pvc, experiments-pvc
+# ============================================================
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rl-platform
+  labels:
+    app.kubernetes.io/name: rl-platform
+    app.kubernetes.io/version: "2.0.0"
+
+---
+# ──── ConfigMap ────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rl-config
+  namespace: rl-platform
+data:
+  RL_DEVICE: "cpu"
+  RL_NUM_WORKERS: "4"
+  RL_EXPERIMENT_NAME: "k8s_run"
+  RL_OUTPUT_DIR: "/app/outputs"
+  RL_CHECKPOINT_DIR: "/app/checkpoints"
+  MLFLOW_TRACKING_URI: "http://mlflow-svc:5000"
+
+---
+# ──── PersistentVolumeClaims ────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: checkpoints-pvc
+  namespace: rl-platform
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: experiments-pvc
+  namespace: rl-platform
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# ──── RL Trainer Deployment ────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rl-trainer
+  namespace: rl-platform
+  labels:
+    app: rl-trainer
+    component: training
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rl-trainer
+  template:
+    metadata:
+      labels:
+        app: rl-trainer
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: trainer
+          image: rl-platform:2.0.0
+          command: ["python", "-m", "scripts.train"]
+          args: ["--config", "/app/configs/default.yaml"]
+          envFrom:
+            - configMapRef:
+                name: rl-config
+          ports:
+            - containerPort: 9090
+              name: metrics
+          volumeMounts:
+            - name: checkpoints
+              mountPath: /app/checkpoints
+            - name: experiments
+              mountPath: /app/experiments
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "2000m"
+            limits:
+              memory: "4Gi"
+              cpu: "4000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: checkpoints
+          persistentVolumeClaim:
+            claimName: checkpoints-pvc
+        - name: experiments
+          persistentVolumeClaim:
+            claimName: experiments-pvc
+      restartPolicy: Always
+
+---
+# ──── RL Inference Deployment ────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rl-inference
+  namespace: rl-platform
+  labels:
+    app: rl-inference
+    component: serving
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rl-inference
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: rl-inference
+    spec:
+      containers:
+        - name: inference
+          image: rl-platform:2.0.0
+          command: ["python", "-m", "scripts.serve"]
+          args: ["--port", "8080"]
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: checkpoints
+              mountPath: /app/checkpoints
+              readOnly: true
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: checkpoints
+          persistentVolumeClaim:
+            claimName: checkpoints-pvc
+
+---
+# ──── Inference Service (LoadBalancer) ────
+apiVersion: v1
+kind: Service
+metadata:
+  name: rl-inference-svc
+  namespace: rl-platform
+  labels:
+    app: rl-inference
+spec:
+  type: LoadBalancer
+  selector:
+    app: rl-inference
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+
+---
+# ──── Telemetry Service ────
+apiVersion: v1
+kind: Service
+metadata:
+  name: rl-telemetry-svc
+  namespace: rl-platform
+  labels:
+    app: rl-trainer
+spec:
+  type: ClusterIP
+  selector:
+    app: rl-trainer
+  ports:
+    - port: 9090
+      targetPort: 9090
+      name: metrics
+
+---
+# ──── Horizontal Pod Autoscaler (Inference) ────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rl-inference-hpa
+  namespace: rl-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rl-inference
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
