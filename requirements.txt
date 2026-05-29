@@ -1,5 +1,5 @@
 # ============================================================
-# Deep RL Platform - Python Dependencies
+# Deep-Reinforcement-Learning-for-Delayed-Rewards - Python Dependencies
 # ============================================================
 
 # ── Core Scientific Stack ──
